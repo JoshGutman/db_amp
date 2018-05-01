@@ -7,7 +7,7 @@
 #include <linux/limits.h>
 
 #include "getfastas.h"
-#include "list.c"
+//#include "list.h"
 
 static const char EXTENSION[] = ".fasta";
 static List LIST;

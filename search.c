@@ -1,4 +1,5 @@
 /*
+Taken from:
 https://www.geeksforgeeks.org/pattern-searching-set-7-boyer-moore-algorithm-bad-character-heuristic/
 */
 
@@ -7,9 +8,10 @@ https://www.geeksforgeeks.org/pattern-searching-set-7-boyer-moore-algorithm-bad-
 # include <limits.h>
 # include <string.h>
 # include <stdio.h>
+# include <stdlib.h>
 
 # include "search.h"
-# include "list.c"
+//# include "list.h"
  
 # define NO_OF_CHARS 256
 

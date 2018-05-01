@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "extend.h"
-#include "list.c"
+//#include "list.h"
 
 void extend(char * seq, List * out) {
   int notDegenerate = 1;
