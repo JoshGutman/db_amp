@@ -20,5 +20,6 @@ const char * degens[] = {
 
 void extend(char * seq, List * out);
 int numExtendedSeqs(char * seq);
+char * reverseComplement(char * seq);
 
 #endif

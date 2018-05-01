@@ -132,6 +132,75 @@ int numExtendedSeqs(char * seq) {
 }
 
 
+char * reverseComplement(char * seq) {
+  int i;
+  int j=0;
+  char * out;
+  out = malloc(sizeof(char) * (strlen(seq) - 1));
+
+  for (i = strlen(seq)-1; i >= 0; i--) {
+    
+    switch(seq[i]) {
+      
+    case 'A' :
+      out[j++] = 'T';
+      break;
+    case 'C' :
+      out[j++] = 'G';
+      break;
+    case 'G' :
+      out[j++] = 'C';
+      break;
+    case 'T' :
+      out[j++] = 'A';
+      break;
+    case 'R' :
+      out[j++] = 'Y';
+      break;
+
+    case 'Y' :
+      out[j++] = 'R';
+      break;
+    case 'S' :
+      out[j++] = 'S';
+      break;
+    case 'W' :
+      out[j++] = 'W';
+      break;
+    case 'K' :
+      out[j++] = 'M';
+      break;
+    case 'M' :
+      out[j++] = 'K';
+      break;
+
+    case 'B' :
+      out[j++] = 'V';
+      break;
+    case 'V' :
+      out[j++] = 'B';
+      break;
+    case 'D' :
+      out[j++] = 'H';
+      break;
+    case 'H' :
+      out[j++] = 'D';
+      break;
+    case 'N' :
+      out[j++] = 'N';
+      break;
+
+    default :
+      out[j++] = seq[i];
+      continue;
+    }
+
+  }
+
+  return out;
+}
+
+
 
 
 /*
@@ -140,6 +209,8 @@ int main() {
   char test2[] = "NAN";
   
   printf("%d, %d\n", numExtendedSeqs(test), numExtendedSeqs(test2));
+
+  printf("%s\n", reverseComplement(test2));
 
   List l;
   listInit(&l, 16, SMALL, STRING);
