@@ -5,10 +5,10 @@ CFLAGS = -Wall -c $(DEBUG)
 LFLAGS = -lm
 
 dbamp : dbamp.o getfastas.o extend.o search.o list.o
-	$(LCC) $(LFLAGS) dbamp.o getfastas.o extend.o search.o list.o -o dbamp
+	$(LCC) $(LFLAGS) -fopenmp dbamp.o getfastas.o extend.o search.o list.o -o dbamp
 
 dbamp.o : dbamp.c getfastas.c extend.c search.c list.c
-	$(LCC) -c dbamp.c
+	$(LCC) -fopenmp -c dbamp.c
 
 getfastas.o : getfastas.c list.c
 	$(LCC) -c getfastas.c
