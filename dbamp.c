@@ -6,6 +6,7 @@
 #include <stddef.h>
 #include <string.h>
 #include <limits.h>
+#include <omp.h>
 
 #include "getfastas.h"
 #include "search.h"
@@ -15,6 +16,7 @@
 int master(int argc, char * argv[], int nprocs);
 void masterSend(char * fasta, char * forward, char * reverse, int * isAnti, int reciever, int kill);
 void slave(void);
+char * readFasta(char * filename);
 
 
 typedef struct Data {
@@ -102,7 +104,10 @@ int master(int argc, char * argv[], int nprocs) {
   List fastas = getFastas(input);
 
   char * antiForward = reverseComplement(forward);
-  char * antiReverse = reverseComplement(reverse);
+  char * antiReverse = malloc(sizeof(char) * strlen(reverse) + 1);
+  strcpy(antiReverse, reverse);
+  reverse = reverseComplement(reverse);
+  //char * antiReverse = reverseComplement(reverse);
 
   int i;
   int reciever = 1;
@@ -185,8 +190,67 @@ void slave() {
       break;
     }
 
+    List forwards;
+    List reverses;
+    listInit(&forwards, numExtendedSeqs(recieved.forward), SMALL, STRING);
+    listInit(&reverses, numExtendedSeqs(recieved.reverse), SMALL, STRING);
+
+    char * fasta = readFasta(recieved.fasta);
+    extend(recieved.forward, &forwards);
+    extend(recieved.reverse, &reverses);
+
+    List forwardMatches;
+    List reverseMatches;
+    listInit(&forwardMatches, 1, SMALL, INT);
+    listInit(&reverseMatches, 1, SMALL, INT);
+    
+    int i;
+    int j;
+    #pragma omp parallel shared(fasta,forwardMatches,reverseMatches) private(i,j)
+      {
+      #pragma omp for
+      for (i = 0; i < forwards.length; i++) {
+	List matches = search(fasta, (char *)listGet(&forwards, i));
+	#pragma omp critical
+	  {
+	  for (j = 0; j < matches.length; j++) {
+	    listAppend(&forwardMatches, listGet(&forwards, j));
+	  }
+	  }
+        }
+
+      #pragma omp for
+      for (i = 0; i < reverses.length; i++) {
+	List matches = search(fasta, (char *)listGet(&reverses, i));
+        #pragma omp critical
+	{
+          for (j = 0; j < matches.length; j++) {
+            listAppend(&reverseMatches, listGet(&reverses, j));
+          }
+	}
+      }
+      }
+
+
+
+
+    free(fasta);
     //    printf("Slave rank %d: Sending data back to master...\n", myRank);
     MPI_Send(&recieved, 1, dataMPI, 0, 0, MPI_COMM_WORLD);
     //    printf("Slave rank %d: Data successfully sent back to master\n\n", myRank);
   }
+}
+
+
+char * readFasta(char * filename) {
+  FILE * f = fopen(filename, "r");
+  fseek(f, 0, SEEK_END);
+  long fsize = ftell(f);
+  fseek(f, 0, SEEK_SET);
+
+  char * out = malloc(fsize + 1);
+  fread(out, fsize, 1, f);
+  fclose(f);
+  out[fsize] = 0;
+  return out;
 }
