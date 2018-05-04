@@ -7,32 +7,48 @@
 #include <string.h>
 #include <limits.h>
 #include <omp.h>
+#include <libgen.h>
 
 #include "getfastas.h"
 #include "search.h"
 #include "extend.h"
 #include "list.h"
 
-int master(int argc, char * argv[], int nprocs);
+#define MAX_PRIMER_LEN 100
+#define MAX_NUM_AMPS 10
+#define MAX_AMP_LEN 1001
+
+int master(void);
 void masterSend(char * fasta, char * forward, char * reverse, int * isAnti, int reciever, int kill);
+int masterRecv(List * amps);
+
 void slave(void);
 char * readFasta(char * filename);
 
 
 typedef struct Data {
   char    fasta[PATH_MAX];
-  char    forward[100];
-  char    reverse[100];
+  char    forward[MAX_PRIMER_LEN];
+  char    reverse[MAX_PRIMER_LEN];
   int     kill;
   int     isAnti;
-  char *  amps[10];
+  int     numAmps;
 } Data;
 
 MPI_Datatype dataMPI;
+
 int myRank;
+int nprocs;
+
+char * forward = NULL;
+char * reverse = NULL;
+char * input = NULL;
+char * output = NULL;
+int lower = 50;
+int upper = 500;
+
 
 int main(int argc, char * argv[]) {
-  int nprocs;
 
   MPI_Init(&argc, &argv);
   MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
@@ -40,38 +56,22 @@ int main(int argc, char * argv[]) {
   
   // Create new MPI datatype
   int count = 6;
-  int blockLengths[] = {PATH_MAX, 100, 100, 1, 1, 10};
+  int blockLengths[] = {PATH_MAX, MAX_PRIMER_LEN, MAX_PRIMER_LEN, 1, 1, 1};
   MPI_Aint disp[] = {offsetof(Data, fasta),
 		     offsetof(Data, forward),
 		     offsetof(Data, reverse),
 		     offsetof(Data, kill),
 		     offsetof(Data, isAnti),
-		     offsetof(Data, amps)};
-  MPI_Datatype types[] = {MPI_CHAR, MPI_CHAR, MPI_CHAR, MPI_INT, MPI_INT, MPI_CHAR};
+		     offsetof(Data, numAmps)};
+  MPI_Datatype types[] = {MPI_CHAR, MPI_CHAR, MPI_CHAR, MPI_INT, MPI_INT, MPI_INT};
   MPI_Type_create_struct(count, blockLengths, disp, types, &dataMPI);
   MPI_Type_commit(&dataMPI);
   
 
-  if (myRank == 0) {
-    master(argc, argv, nprocs);
-  } else {
-    slave();
-  }
-
-  MPI_Finalize();
-}
-
-
-
-int master(int argc, char * argv[], int nprocs) {
-  char * forward = NULL;
-  char * reverse = NULL;
-  char * input = NULL;
-  char * output = NULL;
-
+  // Read command-line flags
   int c;
 
-  while((c = getopt(argc, argv, "f:r:i:o:")) != -1) {
+  while((c = getopt(argc, argv, "f:r:i:o:l:u:")) != -1) {
     switch(c) {
 
     case 'f' :
@@ -86,6 +86,12 @@ int master(int argc, char * argv[], int nprocs) {
     case 'o' :
       output = optarg;
       break;
+    case 'l' :
+      lower = atoi(optarg);
+      break;
+    case 'u' :
+      upper = atoi(optarg);
+      break;
     case '?' :
       if (optopt == 'c')
         fprintf (stderr, "Option -%c requires an argument.\n", optopt);
@@ -97,9 +103,29 @@ int master(int argc, char * argv[], int nprocs) {
 
     default :
       abort ();
-
     }
   }
+
+  if (input && output && forward && reverse) {
+    if (myRank == 0) {
+      master();
+    } else {
+      slave();
+    }
+  } else {  // One of the required args wasn't passed in
+    if (myRank == 0) {
+      fprintf(stderr, "Incorrect usage.\n");
+    }
+  }
+
+
+  MPI_Finalize();
+  return 0;
+}
+
+
+
+int master(void) {
 
   List fastas = getFastas(input);
 
@@ -130,20 +156,24 @@ int master(int argc, char * argv[], int nprocs) {
   //  printf("Master: Initial sending done...\n");
   //  printf("while i (%d) < fastas.length*2 (%d)...\n", i, fastas.length*2);
 
-  MPI_Status status;
-  Data recieved;
+  //MPI_Status status;
+  //Data recieved;
+  int kill = 0;
+  int sendTo;
+  List amps;
+  listInit(&amps, 1, MEDIUM, STRING);
 
   while (i < fastas.length*2) {
 
     //    printf("Master: Waiting for response...\n");
-    MPI_Recv(&recieved, 1, dataMPI, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+    //MPI_Recv(&recieved, 1, dataMPI, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+    sendTo = masterRecv(&amps);
 
     //    printf("Master: Response recieved from %d\n", status.MPI_SOURCE);
-    int kill = 0;
     if (isAnti) {
-      masterSend((char *)listGet(&fastas, i/2), antiForward, antiReverse, &isAnti, status.MPI_SOURCE, kill);
+      masterSend((char *)listGet(&fastas, i/2), antiForward, antiReverse, &isAnti, sendTo, kill);
     } else {
-      masterSend((char *)listGet(&fastas, i/2), forward, reverse, &isAnti, status.MPI_SOURCE, kill);
+      masterSend((char *)listGet(&fastas, i/2), forward, reverse, &isAnti, sendTo, kill);
     }
 
     i++;
@@ -151,7 +181,8 @@ int master(int argc, char * argv[], int nprocs) {
 
 
   for (i = 1; i < nprocs; i++) {
-    MPI_Recv(&recieved, 1, dataMPI, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, &status);
+    //MPI_Recv(&recieved, 1, dataMPI, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, &status);
+    masterRecv(&amps);
   }
 
 
@@ -171,6 +202,7 @@ void masterSend(char * fasta, char * forward, char * reverse, int * isAnti, int 
   strcpy(toSend->reverse, reverse);
   toSend->isAnti = isAntiCpy;
   toSend->kill = kill;
+  toSend->numAmps = 0;
   //  printf("Master: Sending data to slave rank %d...\n", reciever);
   MPI_Send(toSend, 1, dataMPI, reciever, 0, MPI_COMM_WORLD);
   //  printf("Master: Data successfully sent to slave rank %d\n\n", reciever);
@@ -178,9 +210,26 @@ void masterSend(char * fasta, char * forward, char * reverse, int * isAnti, int 
 }
 
 
-void slave() {
+int masterRecv(List * amps) {
+  MPI_Status status;
   Data recieved;
+  int i;
+  char amp[MAX_AMP_LEN];
+  MPI_Recv(&recieved, 1, dataMPI, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+  char * fastaBasename = basename(recieved.fasta);
+  for (i = 0; i < recieved.numAmps; i++) {
+    MPI_Recv(&amp, MAX_AMP_LEN, MPI_CHAR, status.MPI_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    char * toWrite = malloc( (((MAX_AMP_LEN/10)+1) + strlen(amp) + strlen(fastaBasename) + 3) * sizeof(char) );
+    sprintf(toWrite, "%d\t%s\t%s%c", strlen(amp), amp, fastaBasename, '\0');
+    listAppend(amps, (void *)toWrite);
+  }
+  return status.MPI_SOURCE;
+}
+
+
+void slave(void) {
   while (1) {
+    Data recieved;
     //    printf("Slave rank %d: Waiting for data from master...\n", myRank);
     MPI_Recv(&recieved, 1, dataMPI, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
     //    printf("Slave rank %d: Recieved data from master\n", myRank);
@@ -206,37 +255,63 @@ void slave() {
     
     int i;
     int j;
-    #pragma omp parallel shared(fasta,forwardMatches,reverseMatches) private(i,j)
-      {
-      #pragma omp for
+    List matches;
+    #pragma omp parallel shared(fasta,forwardMatches,reverseMatches,forwards,reverses) private(i,j,matches)
+    {
+      #pragma omp for nowait
       for (i = 0; i < forwards.length; i++) {
-	List matches = search(fasta, (char *)listGet(&forwards, i));
+	matches = search(fasta, (char *)listGet(&forwards, i));
 	#pragma omp critical
-	  {
+	{
 	  for (j = 0; j < matches.length; j++) {
-	    listAppend(&forwardMatches, listGet(&forwards, j));
+	    listAppend(&forwardMatches, listGet(&matches, j));
 	  }
-	  }
-        }
+	} // end pragma omp critical
+      }
 
       #pragma omp for
       for (i = 0; i < reverses.length; i++) {
-	List matches = search(fasta, (char *)listGet(&reverses, i));
+	matches = search(fasta, (char *)listGet(&reverses, i));
         #pragma omp critical
 	{
           for (j = 0; j < matches.length; j++) {
-            listAppend(&reverseMatches, listGet(&reverses, j));
+            listAppend(&reverseMatches, listGet(&matches, j));
           }
+	} // end pragma omp critical
+      }
+
+      #pragma omp barrier
+
+    } // end pragma omp parallel
+
+
+    // Look for matches within range
+    int fwrd;
+    int rvse;
+    List amps;
+    listInit(&amps, 1, SMALL, STRING);
+
+    for (i = 0; i < forwardMatches.length; i++) {
+      fwrd = *(int *)listGet(&forwardMatches, i);
+      for (j = 0; j < reverseMatches.length; j++) {
+	rvse = *(int *)listGet(&reverseMatches, i);
+	if ( (fwrd < rvse) && (rvse - fwrd <= upper) && (rvse - fwrd >= lower) ) {
+	  //strncpy(recieved.amps[numAmps++], fasta + fwrd + strlen(recieved.forward), rvse - fwrd);
+	  char * amp = malloc(rvse-fwrd * sizeof(char));
+	  strncpy(amp, fasta + fwrd + strlen(recieved.forward), rvse - fwrd);
+	  amp[rvse-fwrd] = 0;
+	  listAppend(&amps, (void *)amp);
 	}
       }
-      }
-
-
-
+    }
+    recieved.numAmps = amps.length;
 
     free(fasta);
     //    printf("Slave rank %d: Sending data back to master...\n", myRank);
     MPI_Send(&recieved, 1, dataMPI, 0, 0, MPI_COMM_WORLD);
+    for (i = 0; i < amps.length; i++) {
+      MPI_Send((char *)listGet(&amps, i), MAX_AMP_LEN, MPI_CHAR, 0, 0, MPI_COMM_WORLD);
+    }
     //    printf("Slave rank %d: Data successfully sent back to master\n\n", myRank);
   }
 }
@@ -248,9 +323,20 @@ char * readFasta(char * filename) {
   long fsize = ftell(f);
   fseek(f, 0, SEEK_SET);
 
-  char * out = malloc(fsize + 1);
-  fread(out, fsize, 1, f);
+  char * tmp = malloc(fsize + 1);
+  fread(tmp, fsize, 1, f);
   fclose(f);
-  out[fsize] = 0;
+  tmp[fsize] = 0;
+
+  // Remove newlines
+  char * out = malloc(fsize * sizeof(char));
+  int i;
+  int j = 0;
+  for (i = 0; i < fsize; i++) {
+    if (tmp[i] != '\n') {
+      out[j++] = tmp[i];
+    }
+  }
+  free(tmp);
   return out;
 }
