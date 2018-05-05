@@ -190,6 +190,16 @@ int master(void) {
     masterSend("", "", "", &isAnti, i, 1);
   }
 
+
+  FILE * f = fopen(output, "w");
+  for (i = 0; i < amps.length; i++) {
+    fputs((char *)listGet(&amps, i), f);
+  }
+
+  fclose(f);
+
+
+
   return 0;
 
 }
@@ -220,7 +230,7 @@ int masterRecv(List * amps) {
   for (i = 0; i < recieved.numAmps; i++) {
     MPI_Recv(&amp, MAX_AMP_LEN, MPI_CHAR, status.MPI_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
     char * toWrite = malloc( (((MAX_AMP_LEN/10)+1) + strlen(amp) + strlen(fastaBasename) + 3) * sizeof(char) );
-    sprintf(toWrite, "%d\t%s\t%s%c", strlen(amp), amp, fastaBasename, '\0');
+    sprintf(toWrite, "%d\t%s\t%s\n%c", strlen(amp), amp, fastaBasename, '\0');
     listAppend(amps, (void *)toWrite);
   }
   return status.MPI_SOURCE;
